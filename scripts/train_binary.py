@@ -7,7 +7,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import torch
-from monai.losses import DiceLoss
+from monai.losses import DiceLoss, DiceFocalLoss
 from monai.metrics import DiceMetric
 
 from src import data, transforms
@@ -148,9 +148,13 @@ def main(config_path):
     print("Model architecture:", model_config["architecture"])
 
     print("Setting up optimizer and loss function...")
-    if loss_config["name"] != "DiceLoss":
+    if loss_config["name"] == "DiceLoss":
+        loss_function = DiceLoss(sigmoid=loss_config["sigmoid"])
+    elif loss_config["name"] == "DiceFocalLoss":
+        loss_function = DiceFocalLoss(sigmoid=loss_config["sigmoid"])
+    else:
         raise ValueError(f"Unsupported loss.name: {loss_config['name']}")
-    loss_function = DiceLoss(sigmoid=loss_config["sigmoid"])
+    
 
     if optimizer_config["name"] != "Adam":
         raise ValueError(f"Unsupported optimizer.name: {optimizer_config['name']}")
