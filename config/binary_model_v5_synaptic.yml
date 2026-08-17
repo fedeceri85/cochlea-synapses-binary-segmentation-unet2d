@@ -23,7 +23,7 @@ data:
   generate_heatmaps: true
   heatmap_sigma: 2
   overwrite_heatmaps: false
-  label_suffix: '_center_heatmap'  # Use the center heatmap as the label for training
+  label_suffix: '_Masks'  # Use the center heatmap as the label for training
 
 augmentation:
   flip_vertical: true
@@ -50,7 +50,7 @@ training:
   device: auto
 
 loss:
-  name: WeightedHeatmapMSELoss
+  name: DiceLoss
   sigmoid: true
   pos_weight: 20.0
 
@@ -59,7 +59,7 @@ optimizer:
   learning_rate: 0.001
 
 metric:
-  name: MSEMetric # DiceMetric
+  name: DiceMetric
   include_background: false
   reduction: mean
 

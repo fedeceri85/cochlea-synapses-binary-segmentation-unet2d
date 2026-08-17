@@ -36,6 +36,7 @@ def predict_binary(model, image, device, roi_size, sw_batch_size,
 
     return prediction
 
+
 def predict_heatmap(model, image, device, roi_size, sw_batch_size,
                    prediction_sigmoid):
     post_pred = Compose([
@@ -60,7 +61,7 @@ def predict_heatmap(model, image, device, roi_size, sw_batch_size,
     return prediction
 
 from skimage.morphology import closing
-def binary_to_instance_labels(binary_mask, min_size=20, min_distance=5):
+def binary_to_instance_labels(binary_mask, min_size=20, min_distance=5,markers=None):
     # 1. Ensure boolean mask
     mask = binary_mask > 0
 
@@ -70,17 +71,18 @@ def binary_to_instance_labels(binary_mask, min_size=20, min_distance=5):
     # 3. Distance transform: high values near object centers
     distance = ndi.distance_transform_edt(mask)
 
-    # 4. Find likely object centers
-    coords = peak_local_max(
-        distance,
-        labels=mask,
-        min_distance=min_distance,
-        exclude_border=False,
-    )
+    if markers is None:
+        # 4. Find likely object centers
+        coords = peak_local_max(
+            distance,
+            labels=mask,
+            min_distance=min_distance,
+            exclude_border=False,
+        )
 
-    # 5. Convert center points into marker image
-    markers = np.zeros_like(mask, dtype=np.int32)
-    markers[tuple(coords.T)] = np.arange(1, len(coords) + 1)
+        # 5. Convert center points into marker image
+        markers = np.zeros_like(mask, dtype=np.int32)
+        markers[tuple(coords.T)] = np.arange(1, len(coords) + 1)
 
     # 6. Expand markers using watershed
     labels = watershed(
@@ -111,3 +113,16 @@ def predict_labels(model, image, device, roi_size, sw_batch_size,
     labels = binary_to_instance_labels(pred[0][0].cpu().numpy(), min_size=min_size, min_distance=min_distance)
 
     return labels
+
+
+def heatmap_to_marker_image(heatmap,min_distance=5):
+    '''
+    Convert heatmap to an image in which is center is marked by a different index.
+    '''
+    centers = peak_local_max(heatmap,min_distance=min_distance,threshold_abs=0.3)
+    markers = np.zeros_like(heatmap,dtype=np.int32)
+
+    for i, (y,x) in enumerate(centers,start=1):
+        markers[y,x] = i
+
+    return markers    
