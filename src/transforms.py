@@ -7,6 +7,8 @@ from monai.transforms import MapTransform, DeleteItemsd,RandRotate90d, RandScale
 import tifffile
 import numpy as np
 
+
+
 class LoadTiffd(MapTransform):
 
     def __init__(self, keys):
@@ -18,7 +20,7 @@ class LoadTiffd(MapTransform):
 
         for key in self.keys:
             d[key] = tifffile.imread(d[key])
-
+            
         return d
     
 class BinarizeMaskd(MapTransform):
@@ -100,11 +102,11 @@ def get_transforms_binary_classification(
                 keys=["image", "label", "annotation"]
             ),
 
-            FilterByAnnotationd(
-                mask_key="label",
-                annotation_key="annotation",
-                annotation_indices=annotation_indices
-            ),
+            # FilterByAnnotationd(
+            #     mask_key="label",
+            #     annotation_key="annotation",
+            #     annotation_indices=annotation_indices
+            # ),
         #Don't need annotations after this, remove it so we don't have to crop it 
             DeleteItemsd(
             keys=["annotation"]
@@ -123,9 +125,9 @@ def get_transforms_binary_classification(
 
     transforms_list.extend([
 
-        BinarizeMaskd(
-            keys=["label"]
-        ),
+        # BinarizeMaskd(
+        #     keys=["label"]
+        # ),
 
         EnsureChannelFirstd(
             keys=["image", "label"],
@@ -137,10 +139,6 @@ def get_transforms_binary_classification(
             keys=["image"]
         ),
 
-        EnsureTyped(
-            keys=["image", "label"],
-            dtype=torch.float32
-        ),
         #Ensure that all images are the same size, pad with zeros if necessary
         SpatialPadd(
             keys=["image", "label"],
@@ -198,6 +196,10 @@ def get_transforms_binary_classification(
                 prob=intensity_shift_prob,
             ))
 
+
+    transforms_list.append(EnsureTyped(keys=["image", "label"], dtype=torch.float32))
+
+
     train_transforms = Compose(transforms_list)
 
 
@@ -205,11 +207,11 @@ def get_transforms_binary_classification(
     if filter_by_annotation:
         val_transforms_list = [
             LoadTiffd(keys=["image", "label", "annotation"]),
-            FilterByAnnotationd(
-                mask_key="label",
-                annotation_key="annotation",
-                annotation_indices=annotation_indices
-            ),
+            # FilterByAnnotationd(
+            #     mask_key="label",
+            #     annotation_key="annotation",
+            #     annotation_indices=annotation_indices
+            # ),
             DeleteItemsd(
                 keys=["annotation"]
             ),
@@ -217,9 +219,10 @@ def get_transforms_binary_classification(
     else:
         val_transforms_list = [
             LoadTiffd(keys=["image", "label"]),
+
         ]
     val_transforms_list += [
-        BinarizeMaskd(keys=["label"]),
+        # BinarizeMaskd(keys=["label"]),
 
         EnsureChannelFirstd(
             keys=["image", "label"],
@@ -228,11 +231,13 @@ def get_transforms_binary_classification(
 
         ScaleIntensityd(keys=["image"]),
 
+
         EnsureTyped(
             keys=["image", "label"],
             dtype=torch.float32
         ),
     ]
+
     val_transforms = Compose(val_transforms_list)
 
     return train_transforms, val_transforms

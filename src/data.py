@@ -2,7 +2,7 @@ import json
 import math
 import os
 import pandas as pd
-
+import numpy as np
 
 PROCFOLDER = 'processedMovies'
 AVGGFILE = 'Avg.tif'
@@ -54,10 +54,63 @@ def load_all_excels(folder='./experiment_lists',
     alldata['UniqueID'] = alldata['Source_file'] + alldata['Independent recordings number'].astype(str)
     return alldata
 
+
+from scipy import ndimage as ndi
+from skimage.feature import peak_local_max
+from skimage.measure import regionprops
+
+def return_center_points(mask):
+    rprops = regionprops(mask)
+
+    center_points = []
+    for i in range(len(rprops)):
+        label = rprops[i].label
+
+        mask_i = mask.copy()
+        mask_i[mask_i != label] = 0
+
+        distance_map = ndi.distance_transform_edt(mask_i)
+        distance_y, distance_x = np.unravel_index(np.argmax(distance_map), distance_map.shape)   
+        center_points.append((distance_x, distance_y))
+    return center_points
+
+def center_heatmap(mask, annotations= None, annotation_labels=[1,2,5],gaussian_sigma=2):
+    if annotations is not None:
+        #Filter mask by annotations
+        output = np.zeros_like(mask)
+        for obj_id in np.unique(mask):
+            if obj_id == 0:
+                continue
+            obj_pixels = mask == obj_id
+            label = np.bincount(
+                annotations[obj_pixels].astype(int)
+            ).argmax()
+            if (label in annotation_labels):
+                output[obj_pixels] = obj_id
+        mask = output
+
+    shape = mask.shape
+    center_points = return_center_points(mask)
+    heatmap = np.zeros(shape)
+    for point in center_points:
+        heatmap[point[1], point[0]] = 1
+
+    heatmap = ndi.gaussian_filter(heatmap, sigma=gaussian_sigma)
+    #Normalize heatmap to [0,1]
+    #calculate the max value of a single peak
+    dot = np.zeros((101, 101), dtype=np.float32)
+    dot[50, 50] = 1
+    single_peak_value = ndi.gaussian_filter(dot, sigma=gaussian_sigma).max()
+    heatmap = np.clip(heatmap / single_peak_value, 0, 1)
+    return heatmap
+
+
+
 import subprocess
 import tqdm
 from shutil import copy2
-def generate_dataset(alldata,copy_type='local',overwrite=False,local_data_folder='data',require_annotations=True,maskfilename = MASKFILE):
+def generate_dataset(alldata,copy_type='local',overwrite=False,local_data_folder='data',require_annotations=True,annotation_labels=[1,2,5],maskfilename = MASKFILE,
+                     generate_heatmaps=False,heatmap_sigma=2,overwrite_heatmaps=False):
     # Crawl the folder and check that avg and masks exists, move them to the 'data' folder
     '''
     Generate a dataset by verifying the existence of average, mask, and annotation files for each entry in the provided DataFrame. The function can optionally copy these files to a local data folder, and it returns a new DataFrame containing the relevant file paths and metadata.
@@ -100,6 +153,8 @@ def generate_dataset(alldata,copy_type='local',overwrite=False,local_data_folder
             new_avgfile = avgfile
             new_maskfile = maskfile
             new_annotationfile = annotationfile
+            if generate_heatmaps:
+                raise NotImplementedError("Heatmap generation is not implemented for remote copy_type.")
         else:
             raise ValueError(f"Invalid copy_type: {copy_type}. Must be 'local', 'local_no_copy', or 'remote'.")
 
@@ -132,7 +187,21 @@ def generate_dataset(alldata,copy_type='local',overwrite=False,local_data_folder
                 if not os.path.exists(new_annotationfile):
                     print(f"Annotation file does not exist locally: {new_annotationfile}")
                     continue
+        if generate_heatmaps:
+            heatmapfile = os.path.join(local_data_folder, f"{sanitised_folder}_center_heatmap.tif")
+            if (not os.path.exists(heatmapfile)) or overwrite_heatmaps:
+                mask = tifffile.imread(new_maskfile)
+                if require_annotations:
+                    annotations = tifffile.imread(new_annotationfile)
+                else:
+                    annotations = None
+                heatmap = center_heatmap(mask, annotations=annotations, annotation_labels=annotation_labels, gaussian_sigma=heatmap_sigma)
+                tifffile.imwrite(heatmapfile, heatmap.astype(np.float32))
+        else:
+            heatmapfile = None
+        dfdata[-1]['center_heatmap'] = heatmapfile
 
+        
     dfdata = pd.DataFrame(dfdata)
     dfdata.to_csv(os.path.join(local_data_folder, 'dfdata.csv'), index=False)
     #dfdata.set_index('Avgfile', inplace=True)
@@ -233,7 +302,7 @@ def _get_experiment_id(dfdata, avgfile, column):
 
 def train_test_split(dfdata, column='UniqueID', test_size=0.2, random_state=42,
                      split_json_path=None, save_split_json=False,
-                     data_dir='data', require_annotations=True):
+                     data_dir='data', require_annotations=True,label_suffix= '_Masks.tif'):
     '''
     Split the dataset into training and validation sets based on unique identifiers in the specified column. The function checks for the existence of average, mask, and annotation files, ensuring they have matching shapes before including them in the final dataset. It returns two lists of dictionaries representing the training and validation datasets.
     Parameters:
@@ -252,7 +321,7 @@ def train_test_split(dfdata, column='UniqueID', test_size=0.2, random_state=42,
     for file in os.listdir(data_dir):
         if file.endswith('_Avg.tif'):
             avgfile = os.path.join(data_dir, file)
-            maskfile = os.path.join(data_dir, file.replace('_Avg.tif', '_Masks.tif'))
+            maskfile = os.path.join(data_dir, file.replace('_Avg.tif', label_suffix))
             if require_annotations:
                 annotationfile = os.path.join(data_dir, file.replace('_Avg.tif', '_Annotations.tif'))
             else:

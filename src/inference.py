@@ -36,6 +36,29 @@ def predict_binary(model, image, device, roi_size, sw_batch_size,
 
     return prediction
 
+def predict_heatmap(model, image, device, roi_size, sw_batch_size,
+                   prediction_sigmoid):
+    post_pred = Compose([
+        Activations(sigmoid=prediction_sigmoid),
+    ])
+
+    model.eval()
+
+    with torch.no_grad():
+
+        output = sliding_window_inference(
+            image.to(device),
+            roi_size=tuple(roi_size),
+            sw_batch_size=sw_batch_size,
+            predictor=model,
+            overlap=0.5,
+            mode='gaussian',
+        )
+
+        prediction = post_pred(output)
+
+    return prediction
+
 from skimage.morphology import closing
 def binary_to_instance_labels(binary_mask, min_size=20, min_distance=5):
     # 1. Ensure boolean mask

@@ -15,7 +15,7 @@ from src.config import load_yaml_config
 from src.model import build_binary_model
 from src.train import train_one_epoch_binary
 from src.validate import validate_binary
-
+from src.losses import WeightedHeatmapMSELoss
 
 def main(config_path):
     if not os.path.isabs(config_path):
@@ -85,8 +85,12 @@ def main(config_path):
             overwrite=data_config["overwrite"],
             local_data_folder=data_dir,
             require_annotations=data_config.get("require_annotations", True),
-            maskfilename=data_config.get("maskfilename", "Masks.tif")
-    )
+            maskfilename=data_config.get("maskfilename", "Masks.tif"),
+            generate_heatmaps=data_config.get("generate_heatmaps", False),
+            heatmap_sigma=data_config.get("heatmap_sigma", 2),
+            overwrite_heatmaps=data_config.get("overwrite_heatmaps", False),
+            annotation_labels=data_config.get("annotation_indices", [1,2,5])
+        )
 
     print("Splitting data into training and validation sets...")
     train_data, val_data = data.train_test_split(
@@ -97,9 +101,10 @@ def main(config_path):
         split_json_path=split_json_path,
         save_split_json=data_config["save_split_json"],
         data_dir=data_dir,
-        require_annotations=data_config.get("require_annotations", True)
+        require_annotations=data_config.get("require_annotations", True),
+        label_suffix=data_config.get("label_suffix", '_center_heatmap')+'.tif'
     )
-
+    
     train_transforms, val_transforms = transforms.get_transforms_binary_classification(
         num_samples=data_config["num_samples"],
         spatial_size=tuple(data_config["patch_size"]),
@@ -152,6 +157,11 @@ def main(config_path):
         loss_function = DiceLoss(sigmoid=loss_config["sigmoid"])
     elif loss_config["name"] == "DiceFocalLoss":
         loss_function = DiceFocalLoss(sigmoid=loss_config["sigmoid"])
+    elif loss_config["name"] == "WeightedHeatmapMSELoss":
+        loss_function = WeightedHeatmapMSELoss(
+            pos_weight=loss_config.get("pos_weight", 20.0),
+            sigmoid=loss_config.get("sigmoid", True)
+        )
     else:
         raise ValueError(f"Unsupported loss.name: {loss_config['name']}")
     
@@ -164,7 +174,7 @@ def main(config_path):
     )
 
     start_epoch = 0
-    best_dice = float("-inf")
+    best_metric = float("-inf")
     best_epoch = None
 
     if os.path.exists(checkpoint_path):
@@ -172,15 +182,15 @@ def main(config_path):
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start_epoch = checkpoint["epoch"] + 1
-        best_dice = checkpoint.get("best_dice", best_dice)
+        best_metric = checkpoint.get("best_metric", best_metric)
         best_epoch = checkpoint.get("best_epoch", checkpoint["epoch"])
 
         if os.path.exists(best_model_path):
             best_model = torch.load(best_model_path, map_location=device)
-            best_dice = best_model.get("best_dice", best_dice)
+            best_metric = best_model.get("best_metric", best_metric)
             best_epoch = best_model.get("epoch", best_epoch)
 
-        print(f"Loaded checkpoint from epoch {start_epoch} with best dice {best_dice} at epoch {best_epoch}")
+        print(f"Loaded checkpoint from epoch {start_epoch} with best dice {best_metric} at epoch {best_epoch}")
         for state in optimizer.state.values():
             for key, value in state.items():
                 if torch.is_tensor(value):
@@ -188,12 +198,18 @@ def main(config_path):
     else:
         print("Training from scratch")
 
-    if metric_config["name"] != "DiceMetric":
+    if metric_config["name"] == "DiceMetric":    
+            metric = DiceMetric(
+                include_background=metric_config["include_background"],
+                reduction=metric_config["reduction"],
+            )
+    elif metric_config["name"] == "MSEMetric":
+        from monai.metrics import MSEMetric
+        metric = MSEMetric(
+            reduction=metric_config["reduction"],
+        )
+    else:
         raise ValueError(f"Unsupported metric.name: {metric_config['name']}")
-    dice_metric = DiceMetric(
-        include_background=metric_config["include_background"],
-        reduction=metric_config["reduction"],
-    )
 
     checkpoint_dir = os.path.dirname(checkpoint_path)
     best_model_dir = os.path.dirname(best_model_path)
@@ -217,10 +233,10 @@ def main(config_path):
             device,
         )
 
-        val_dice = validate_binary(
+        val_metric = validate_binary(
             model,
             val_loader,
-            dice_metric,
+            metric,
             device,
             prediction_sigmoid=validation_config["prediction_sigmoid"],
             prediction_threshold=validation_config["prediction_threshold"],
@@ -232,17 +248,21 @@ def main(config_path):
         print(
             f"Epoch {epoch + 1:3d} "
             f"Loss={train_loss:.4f} "
-            f"Dice={val_dice:.4f}"
+            f"Metric={val_metric:.4f}"
         )
 
-        if val_dice > best_dice:
-            best_dice = val_dice
+        #if metric is mse, lower is better, so we negate it
+        if metric_config["name"] == "MSEMetric":
+            val_metric = -val_metric
+
+        if val_metric > best_metric:
+            best_metric = val_metric
             best_epoch = epoch
             torch.save({
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
-                "best_dice": best_dice,
+                "best_metric": best_metric,
                 "config_path": config_path,
             }, best_model_path)
             print("Saved new best model")
@@ -251,7 +271,7 @@ def main(config_path):
             "epoch": epoch,
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
-            "best_dice": best_dice,
+            "best_metric": best_metric,
             "best_epoch": best_epoch,
             "config_path": config_path,
         }, checkpoint_path)

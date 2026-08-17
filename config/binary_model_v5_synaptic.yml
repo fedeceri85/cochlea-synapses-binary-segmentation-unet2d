@@ -4,7 +4,7 @@ data:
   drive: /Volumes/data
   data_dir: data_sgn
   maskfilename: SGN ROIs.tif
-  copy_type: local
+  copy_type: local_no_copy
   overwrite: false
   split_file: splits/binary_split_v5_synaptic.json
   save_split_json: true
@@ -20,6 +20,10 @@ data:
   inclusions: ['NeuroD', 'SNAP25','Snap25','iAChSnFR', 'iGluSnFR']
   require_annotations: true
   load_local_dataset: false  
+  generate_heatmaps: true
+  heatmap_sigma: 2
+  overwrite_heatmaps: false
+  label_suffix: '_center_heatmap'  # Use the center heatmap as the label for training
 
 augmentation:
   flip_vertical: true
@@ -46,15 +50,16 @@ training:
   device: auto
 
 loss:
-  name: DiceFocalLoss
+  name: WeightedHeatmapMSELoss
   sigmoid: true
+  pos_weight: 20.0
 
 optimizer:
   name: Adam
   learning_rate: 0.001
 
 metric:
-  name: DiceMetric
+  name: MSEMetric # DiceMetric
   include_background: false
   reduction: mean
 

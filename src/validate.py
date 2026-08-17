@@ -6,19 +6,19 @@ from monai.metrics import DiceMetric
 from monai.transforms import Activations, AsDiscrete, Compose
 
 
-def validate_binary(model, loader, dice_metric, device,
+def validate_binary(model, loader, metric, device,
                     prediction_sigmoid, prediction_threshold,
                     label_threshold, roi_size, sw_batch_size):
     post_pred = Compose([
         Activations(sigmoid=prediction_sigmoid),
-        AsDiscrete(threshold=prediction_threshold),
+     #   AsDiscrete(threshold=prediction_threshold),
     ])
     post_label = Compose([
-        AsDiscrete(threshold=label_threshold),
+      #  AsDiscrete(threshold=label_threshold),
     ])
 
     model.eval()
-    dice_metric.reset()
+    metric.reset()
 
     with torch.no_grad():
         for batch in loader:
@@ -35,8 +35,8 @@ def validate_binary(model, loader, dice_metric, device,
             pred = post_pred(output)
             gt = post_label(label)
 
-            dice_metric(pred,gt)
-    score =dice_metric.aggregate().item()
-    dice_metric.reset()
+            metric(pred,gt)
+    score =metric.aggregate().item()
+    metric.reset()
 
     return score
