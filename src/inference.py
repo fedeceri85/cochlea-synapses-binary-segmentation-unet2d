@@ -115,11 +115,11 @@ def predict_labels(model, image, device, roi_size, sw_batch_size,
     return labels
 
 
-def heatmap_to_marker_image(heatmap,min_distance=5):
+def heatmap_to_marker_image(heatmap, min_distance=5, threshold_abs=0.3):
     '''
     Convert heatmap to an image in which is center is marked by a different index.
     '''
-    centers = peak_local_max(heatmap,min_distance=min_distance,threshold_abs=0.3)
+    centers = peak_local_max(heatmap, min_distance=min_distance, threshold_abs=threshold_abs)
     markers = np.zeros_like(heatmap,dtype=np.int32)
 
     for i, (y,x) in enumerate(centers,start=1):

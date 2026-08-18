@@ -1,63 +1,84 @@
-# Cochlea Hair Cell Binary Segmentation U-Net 2D
+# Cochlea Synapse ROI Segmentation U-Net 2D
+[![Hugging Face Model](https://img.shields.io/badge/🤗%20Hugging%20Face-Model-FFD21E)](TODO)
 
-[![Hugging Face Model](https://img.shields.io/badge/🤗%20Hugging%20Face-Model-FFD21E)](https://huggingface.co/fedeceri/cochlea-hair-cell-binary-segmentation-UNET2d)
 
+Small MONAI/PyTorch pipeline for 2D cochlear microscopy ROI segmentation. This pipeline trains an UNET model for the segmentation of fluorescently-labelled putative cochlear boutons. 
 
-Small MONAI/PyTorch pipeline for 2D binary segmentation of cochlear microscopy TIFF images, with optional watershed post-processing to produce instance labels.
+The ROI inference uses two U-Net models:
+
+- a binary foreground model
+- a center heatmap model whose peaks are used as watershed markers
 
 Input: single-channel `*_Avg.tif` image.  
-Output: binary foreground mask, or instance-label mask after watershed post-processing.
+Output: instance-label ROI mask. Optional intermediate outputs are the binary foreground mask, center heatmap, and marker image.
+
+![Sample ROI result](docs/assets/sample_result.png)
 
 
 
 ## Files
 
 ```text
-config/                       # training configs
-checkpoints/                  # local checkpoints
-scripts/train_binary.py       # config-driven training
-huggingface/infer_binary.py   # single-image inference demo for HF release
-src/                          # data, model, transforms, train/validate helpers
-binary_check_predictions.ipynb
-huggingface/README.md         # short model card for HF upload
+config/                                 # training configs for the binary and heatmap models
+config/binary_model_v5_synaptic.yml
+config/heatmap_model_v5_synaptic.yml
+scripts/train_binary.py                 # binary foreground model training
+scripts/train_heatmap.py                # center heatmap model training
+scripts/combine_roi_model_weights.py    # combine the weights of the two model into a single file
+infer_rois.py                           # single-image ROI inference
+src/                                    # data, model, transforms, train/validate helpers
+binary_check_predictions.ipynb          # notebook to check predictions of the binary model.
+heatmap_check_predictions.ipynb         # notebook to check predictions of the heatmap model.
+binary_heatmap_check_predictions.ipynb  # notebook to check predictions of the two models and final watershed-based roi segmentation.
 ```
 
 ## Train
 
 Training requires a config file. Epochs, workers, checkpoint paths, model settings, augmentation flags/probabilities, split settings, and data paths are read from YAML.
 
+Train the binary foreground model:
+
 ```bash
-cd MONAI-test
-../.venv/bin/python scripts/train_binary.py config/binary_model_v2.yml
+.venv/bin/python scripts/train_binary.py config/binary_model_v5_synaptic.yml
 ```
 
-Training starts from scratch when `training.resume: false`. When `training.resume: true`, it continues from the checkpoint epoch and stops at `training.epochs`.
+Train the center heatmap model:
+
+```bash
+.venv/bin/python scripts/train_heatmap.py config/heatmap_model_v5_synaptic.yml
+```
+
+If the configured checkpoint path exists, training resumes from it. Otherwise it starts from scratch.
+
+After training both models, combine the two best model weight dictionaries into one inference file:
+
+```bash
+.venv/bin/python scripts/combine_roi_model_weights.py
+```
+
+This writes `checkpoints/best_model_binary_heatmap_v5_synaptic.pth`, containing only `binary_state_dict` and `heatmap_state_dict`.
 
 ## Inference
 
-The inference demo is designed for the Hugging Face release folder, where the script sits next to `config.yml` and the packaged checkpoint named by `model.best_model_path`.
+`infer_rois.py` loads the combined weights file and reads the model/validation settings from the two YAML configs.
 
 ```bash
-python infer_binary.py input_Avg.tif --output prediction_mask.tif
+.venv/bin/python infer_rois.py input_Avg.tif --output input_rois.tif
 ```
 
-If `--output` is omitted, the script writes `<input>_prediction.tif`.
+If `--output` is omitted, the script writes `<input>_rois.tif`.
 
-To write watershed-separated instance labels:
+To also write the intermediate binary mask, heatmap, and markers:
 
 ```bash
-python infer_binary.py input_Avg.tif --output-type labels --output prediction_labels.tif
+.venv/bin/python infer_rois.py input_Avg.tif --output input_rois.tif --save-intermediates
 ```
 
-## Hugging Face
-
-Only upload the selected best model to Hugging Face:
+The default inference files are:
 
 ```text
-README.md
-infer_binary.py
-best_model_binary_v1.pth
-config.yml
+checkpoints/best_model_binary_heatmap_v5_synaptic.pth
+config/binary_model_v5_synaptic.yml
+config/heatmap_model_v5_synaptic.yml
 ```
 
-Keep training code on GitHub. Copy `huggingface/README.md` to the Hugging Face repo as `README.md`, then update the GitHub URL, commit SHA, chosen checkpoint, and validation Dice.
