@@ -1,5 +1,5 @@
 # Cochlea Synapse ROI Segmentation U-Net 2D
-[![Hugging Face Model](https://img.shields.io/badge/🤗%20Hugging%20Face-Model-FFD21E)](https://huggingface.co/fedeceri/cochlea-synapses-segmentation-unet2d/settings)
+[![Hugging Face Model](https://img.shields.io/badge/🤗%20Hugging%20Face-Model-FFD21E)](https://huggingface.co/fedeceri/cochlea-synapses-segmentation-unet2d)
 
 
 Small MONAI/PyTorch pipeline for 2D cochlear microscopy ROI segmentation. This pipeline trains an UNET model for the segmentation of fluorescently-labelled putative cochlear synaptic boutons. 
