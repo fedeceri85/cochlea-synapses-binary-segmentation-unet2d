@@ -8,3 +8,4 @@ cached_frames
 __pycache__*
 huggingface*
 experiment_lists/*
+.DS_Store
